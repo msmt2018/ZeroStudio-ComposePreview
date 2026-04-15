@@ -20,8 +20,6 @@ fun <R> executeAsync(
     callable: () -> R?,
     callback: (R?) -> Unit
 ): CompletableFuture<R?> {
-    // Restoration of TaskExecutorKt$$ExternalSyntheticLambda2 (Callable bridge)
-    // and TaskExecutorKt$$ExternalSyntheticLambda3 (Callback bridge)
     return TaskExecutor.executeAsync(
         Callable { callable.invoke() },
         TaskExecutor.Callback { result -> callback.invoke(result) }
@@ -38,8 +36,6 @@ fun <R> executeAsyncProvideError(
     callable: () -> R?,
     callback: (R?, Throwable?) -> Unit
 ): CompletableFuture<R?> {
-    // Restoration of TaskExecutorKt$$ExternalSyntheticLambda0 (Callable bridge)
-    // and TaskExecutorKt$$ExternalSyntheticLambda1 (CallbackWithError bridge)
     return TaskExecutor.executeAsyncProvideError(
         Callable { callable.invoke() },
         TaskExecutor.CallbackWithError { result, error -> callback.invoke(result, error) }

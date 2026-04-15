@@ -9,82 +9,62 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Manages an in-memory cache of Kotlin PSI files to optimize repeated analysis.
+ * PSI 文件缓存管理器：维护内存中的虚拟文件系统以供编译器快速分析。
  * 
- * @property project The project context required by the PSI factory.
+ * 工作流程线路图:
+ * 1. 存储: 利用 ConcurrentHashMap 存储文件名与 KtPsiFile 的映射。
+ * 2. 更新: 当编辑器内容变化时，计算 Hash，如果不一致则通过 PsiFileFactory 重新构建 PSI 树。
+ * 3. 提取: 提供 ktFiles 属性供 KotlinCoreEnvironment 注入源文件集合。
+ * 
  * @author android_zero
  */
 class PsiFileCache(private val project: Project) {
 
-    /** 
-     * Factory for creating PSI files from text.
-     * Restoration of PsiFileCache$$ExternalSyntheticLambda0 logic.
-     */
     private val factory: PsiFileFactory by lazy {
         PsiFileFactory.getInstance(project)
     }
 
-    /** Thread-safe storage for cached PSI files. */
-    private val cache: ConcurrentHashMap<String, KtPsiFile> = ConcurrentHashMap()
+    private val cache = ConcurrentHashMap<String, KtPsiFile>()
 
-    /** 
-     * Provides a list of all currently cached Kotlin files.
-     * 
-     * 工作流程:
-     * 1. 访问底层 ConcurrentHashMap 的所有值。
-     * 2. 将每个 KtPsiFile 实例映射为其内部持有的 KtFile。
-     * 3. 返回包含所有 KtFile 的列表。
+    /**
+     * 获取所有缓存的 KtFile 实例。
      */
     val ktFiles: List<KtFile>
-        get() {
-            val values = this.cache.values
-            val result = ArrayList<KtFile>(values.size)
-            for (item in values) {
-                result.add(item.ktFile)
-            }
-            return result
-        }
+        get() = cache.values.map { it.ktFile }
 
     /**
-     * Retrieves a cached Kotlin PSI file by its name.
+     * 根据名称获取缓存。会处理路径中的斜杠，确保 key 的唯一性。
      */
     fun get(name: String): KtPsiFile? {
-        return this.cache[name]
+        val key = name.substringAfterLast("/")
+        return cache[key]
     }
 
-    /**
-     * Retrieves a cached file or updates the cache if the file content has changed.
-     */
     fun getOrUpdate(file: File): KtPsiFile {
-        val fileName = file.name
-        val content = file.readText()
-        return this.getOrUpdate(fileName, content)
+        return getOrUpdate(file.name, file.readText())
     }
 
     /**
-     * Checks the provided text against the cache. If changed, recreates the PSI tree.
-     * 
-     * @param name The unique identifier for the file (usually the filename).
-     * @param code The source code text.
-     * @return The cached or newly created [KtPsiFile].
+     * 更新缓存。
+     * 如果文本 Hash 未改变，则直接返回旧实例，优化性能。
      */
     fun getOrUpdate(name: String, code: String): KtPsiFile {
+        val key = name.substringAfterLast("/")
         val currentHash = code.hashCode()
-        val existing = this.cache[name]
+        val existing = cache[key]
         
-        // If the file exists and the content hash matches, return the cached version
         if (existing != null && existing.textHash == currentHash) {
             return existing
         } else {
-            // Re-create the PSI file using the factory
-            val psiFile = this.factory.createFileFromText(
-                name,
+            // 通过 Kotlin 插件提供的工厂创建虚拟 PSI 文件
+            val psiFile = factory.createFileFromText(
+                key,
                 KotlinLanguage.INSTANCE as Language,
                 code
             )
             
             val ktPsiFile = KtPsiFile(psiFile as KtFile, currentHash)
-            this.cache[name] = ktPsiFile
+            cache[key] = ktPsiFile
             return ktPsiFile
         }
     }

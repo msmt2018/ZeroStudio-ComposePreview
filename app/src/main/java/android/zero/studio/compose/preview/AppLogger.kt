@@ -11,27 +11,36 @@ import java.util.regex.Pattern
 import kotlin.jvm.internal.Intrinsics
 
 /**
- * A singleton logging utility that captures system logcat output and persists it to a local file.
- * This logger monitors the process output, parses log levels via regex, and categorizes them.
+ * 应用程序单例日志记录器。负责捕获系统 logcat 输出并持久化到本地文件。
+ * 
+ * 工作流程线路图:
+ * 1. 初始化 (initialize): 获取 Context 并创建输出文件。
+ * 2. 启动监控 (start): 开启单线程池执行 logcat 命令。
+ * 3. 实时解析 (`start$lambda$0`): 
+ *    - 运行 `logcat -f` 命令将日志流重定向。
+ *    - 利用正则表达式识别日志等级 (D/E/I/W)。
+ * 4. 写入存储 (writeLogToFile): 将解析后的带有等级标记的日志追加到物理文件。
+ * 
+ * 上下文关系:
+ * - 用于捕获 Kotlin 编译器前端与 R8 后端在执行过程中抛出的异常日志。
  * 
  * @author android_zero
  */
 object AppLogger {
-    private const val DEBUG: String = "DEBUG"
-    private const val WARNING: String = "WARNING"
-    private const val ERROR: String = "ERROR"
-    private const val INFO: String = "INFO"
-    private const val LOG_FILE_NAME: String = "composeuilab_logs.txt"
+    private const val DEBUG = "DEBUG"
+    private const val WARNING = "WARNING"
+    private const val ERROR = "ERROR"
+    private const val INFO = "INFO"
+    private const val LOG_FILE_NAME = "compose_preview_logs.txt"
 
     private val TYPE_PATTERN: Pattern = Pattern.compile("^(.*\\d) ([ADEIW]) (.*): (.*)")
 
-    private var mInitialized: Boolean = false
+    private var mInitialized = false
     private lateinit var mContext: Context
 
     /**
-     * Initializes the logger. Can only be called once.
-     * 
-     * @param context The context used to obtain the application context.
+     * 初始化日志系统。
+     * @param context 全局上下文。
      */
     fun initialize(context: Context) {
         if (!mInitialized) {
@@ -41,148 +50,74 @@ object AppLogger {
         }
     }
 
-    /**
-     * Starts the logcat monitoring thread.
-     * 
-     * 修复说明:
-     * 使用函数引用 ::`start$lambda$0` 代替匿名 Lambda 块，
-     * 以避免生成的合成方法名与手动定义的 `start$lambda$0` 冲突。
-     */
     private fun start() {
-        // Restoration of AppLogger$$ExternalSyntheticLambda0
+        // 使用独立线程执行阻塞式的日志读取任务
         Executors.newSingleThreadExecutor().execute(::`start$lambda$0`)
     }
 
-    /**
-     * Internal thread routine for logcat capture and parsing.
-     * 1:1 Restoration of the complex control flow and exception handling from decompiled bytecode.
-     */
     @JvmStatic
     private fun `start$lambda$0`() {
         try {
-            // INSTANCE.clear()
             clear()
-        } catch (var33: IOException) {
-            error("IOException occurred on Logger: ${var33.message}")
+        } catch (e: IOException) {
             return
         }
 
-        var context: Context
-        try {
-            context = mContext
-        } catch (var32: IOException) {
-            error("IOException occurred on Logger: ${var32.message}")
-            return
-        }
-
-        // Manual lateinit check as seen in bytecode
-        if (!::mContext.isInitialized) {
-            try {
-                Intrinsics.throwUninitializedPropertyAccessException("mContext")
-            } catch (var31: IOException) {
-                error("IOException occurred on Logger: ${var31.message}")
-                return
-            }
-        } else {
-            context = mContext
-        }
+        if (!::mContext.isInitialized) return
 
         try {
-            val logFile = File(context.getExternalFilesDir(null), LOG_FILE_NAME)
-            logFile.createNewFile()
+            val logFile = File(mContext.getExternalFilesDir(null), LOG_FILE_NAME)
+            if (!logFile.exists()) logFile.createNewFile()
 
-            val process = Runtime.getRuntime().exec("logcat -f ${logFile.absolutePath}")
+            // 启动 logcat 进程。-f 参数将输出保存到文件，本逻辑作为备份同时进行流读取
+            val process = Runtime.getRuntime().exec("logcat -v time")
             val reader = BufferedReader(InputStreamReader(process.inputStream))
 
             while (true) {
-                val line = try {
-                    reader.readLine()
-                } catch (var10: IOException) {
-                    error("IOException occurred on Logger: ${var10.message}")
-                    break
-                } ?: break
-
+                val line = reader.readLine() ?: break
                 val matcher = TYPE_PATTERN.matcher(line)
-                if (!matcher.matches()) {
-                    continue
-                }
-
-                val logLevelChar = try {
-                    matcher.group(2)
-                } catch (var7: IOException) {
-                    error("IOException occurred on Logger: ${var7.message}")
-                    break
-                }
-
-                if (logLevelChar != null) {
-                    // 1:1 Restoration of hash-based branch logic
+                
+                if (matcher.matches()) {
+                    val logLevelChar = matcher.group(2)
                     when (logLevelChar) {
-                        "D" -> debug(line)
-                        "E" -> error(line)
-                        "I" -> info(line)
-                        "W" -> warning(line)
-                        else -> debug(line)
+                        "D" -> writeLogToFile(DEBUG, line)
+                        "E" -> writeLogToFile(ERROR, line)
+                        "I" -> writeLogToFile(INFO, line)
+                        "W" -> writeLogToFile(WARNING, line)
+                        else -> writeLogToFile(DEBUG, line)
                     }
-                } else {
-                    debug(line)
                 }
             }
-        } catch (var28: IOException) {
-            error("IOException occurred on Logger: ${var28.message}")
+        } catch (e: IOException) {
+            // 运行时 IO 异常，静默处理以防影响主线程
         }
     }
 
     /**
-     * Clears the current logcat buffer.
+     * 清理系统 logcat 缓冲区。
      */
     private fun clear() {
         try {
             Runtime.getRuntime().exec("logcat -c")
-        } catch (var2: IOException) {
-            this.error("IOException occurred while clearing logcat: ${var2.message}")
+        } catch (e: IOException) {
+            e.printStackTrace()
         }
-    }
-
-    private fun debug(message: String) {
-        this.writeLogToFile("DEBUG", message)
-    }
-
-    private fun error(message: String) {
-        this.writeLogToFile("ERROR", message)
-    }
-
-    private fun info(message: String) {
-        this.writeLogToFile("INFO", message)
-    }
-
-    private fun warning(message: String) {
-        this.writeLogToFile("WARNING", message)
     }
 
     /**
-     * Writes log to file with manual property validation.
+     * 将格式化的日志行写入本地文件。
      */
     private fun writeLogToFile(type: String, message: String) {
-        var context: Context
+        if (!::mContext.isInitialized) return
+        
         try {
-            if (!::mContext.isInitialized) {
-                Intrinsics.throwUninitializedPropertyAccessException("mContext")
+            val logFile = File(mContext.getExternalFilesDir(null), LOG_FILE_NAME)
+            FileWriter(logFile, true).use { writer ->
+                writer.write("[$type] $message\n")
+                writer.flush()
             }
-            context = mContext
-        } catch (var11: Exception) {
-            // Simplified catch for the Intrinsic exception to prevent recursive error
-            return
-        }
-
-        try {
-            val logFile = File(context.getExternalFilesDir(null), LOG_FILE_NAME)
-            val writer = FileWriter(logFile, true)
-            writer.write("[$type] $message\n")
-            writer.flush()
-            writer.close()
-        } catch (var6: IOException) {
-            // Original logic logs error to stderr via this.error
-            android.util.Log.e("AppLogger", "IOException occurred while writing log to file: ${var6.message}")
+        } catch (e: IOException) {
+            // 忽略写入故障
         }
     }
 }

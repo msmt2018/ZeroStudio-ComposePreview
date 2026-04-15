@@ -6,58 +6,53 @@ import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import java.io.File
 
 /**
- * Encapsulates the logic for analyzing Kotlin source code within the editor context.
- * This class coordinates between the editor's text content and the Kotlin language support.
+ * 编译器前端分析器：充当编辑器与 Kotlin 语言支持层之间的桥梁。
  * 
- * @property editor The specific code editor view instance.
- * @property file The physical file associated with the editor content.
+ * @property editor 当前代码编辑器实例。
+ * @property file 正在编辑的文件。
  * @author android_zero
  */
 class KotlinAnalyzer(val editor: CodeEditorView, val file: File) {
 
-    /**
-     * Stores the result of the latest analysis.
-     */
+    /** 存储最近一次分析产生的诊断结果 */
     private var newContainer: DiagnosticsContainer? = null
 
-    /**
-     * Lazy-initialized reference to the Kotlin language support.
-     * 1:1 Restoration of the lazy delegate and casting logic from the decompiled source.
-     */
+    /** 获取编辑器当前的语言支持实例，并转换为 Kotlin 专用实现 */
     val editorLanguage: KotlinLanguage by lazy {
-        // Re-sugar KotlinAnalyzer$$ExternalSyntheticLambda0
         val lang = editor.editorLanguage
-        lang as KotlinLanguage
+        if (lang is KotlinLanguage) {
+            lang
+        } else {
+            throw IllegalStateException("Editor is not configured with KotlinLanguage")
+        }
     }
 
     /**
-     * Triggers the asynchronous analysis process.
-     * It captures the current editor text and invokes the Kotlin language analyzer.
+     * 触发编译与分析管线。
+     * 该方法会阻塞协程直到整个 (Analyze -> Class -> Jar -> Dex) 流程完成。
      */
     suspend fun analyze() {
-        // Retrieve the language support instance
         val lang = editorLanguage
         
-        // Capture the current text from the editor
+        // 获取当前编辑器缓冲区中的最新文本
         val content = editor.text.toString()
         
-        // Execute the analysis and capture the diagnostics container
-        // Re-sugar logic from KotlinAnalyzer$analyze$1 state machine
+        // 执行核心编译管线
         val result = lang.analyze(file, content)
         
-        // Store the new diagnostics result
+        // 缓存本次编译生成的诊断信息（用于更新 UI 错误指示）
         newContainer = result
     }
 
     /**
-     * Returns the diagnostics container generated during the last successful analysis.
+     * 获取生成的诊断容器。
      */
     fun getDiagnosticsContainer(): DiagnosticsContainer? {
         return newContainer
     }
 
     /**
-     * Clears current diagnostic results.
+     * 重置分析器状态。
      */
     fun reset() {
         newContainer = null

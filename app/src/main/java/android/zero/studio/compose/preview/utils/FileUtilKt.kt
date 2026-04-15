@@ -31,7 +31,7 @@ object FileUtil {
     val classpathDir: File
         get() = File(context.getExternalFilesDir(null), "classpath")
 
-    private val classpathJvmDir: File
+    val classpathJvmDir: File
         get() = File(classpathDir, "jvm")
 
     val androidJar: File
@@ -203,7 +203,6 @@ fun File.deleteFile(callback: ((Boolean) -> Unit)? = null) {
 
 /**
  * Zips the content of the current directory into the specified target jar/zip file.
- * This is crucial for D8 compilation, which prefers processing bundled class files.
  * 
  * @param targetJar The output zip/jar file.
  * @author android_zero
@@ -211,17 +210,27 @@ fun File.deleteFile(callback: ((Boolean) -> Unit)? = null) {
 fun File.zipToJar(targetJar: File) {
     if (!this.exists() || !this.isDirectory) return
     
+    // 如果目标文件存在则先删除，确保写入全新的内容
+    if (targetJar.exists()) {
+        targetJar.delete()
+    }
+    
     FileOutputStream(targetJar).use { fos ->
         ZipOutputStream(fos).use { zos ->
-            this.walkTopDown().filter { it.isFile }.forEach { file ->
-                val entryName = file.relativeTo(this).path.replace('\\', '/')
-                val zipEntry = ZipEntry(entryName)
-                zos.putNextEntry(zipEntry)
-                FileInputStream(file).use { fis ->
-                    fis.copyTo(zos)
+            this.walkTopDown()
+                .filter { it.isFile }
+                .filter { it.absolutePath != targetJar.absolutePath }
+                .forEach { file ->
+                    // 获取相对路径作为 Zip 内部的包结构 (例如: PlaygroundKt.class 或 META-INF/...)
+                    val entryName = file.relativeTo(this).path.replace('\\', '/')
+                    val zipEntry = ZipEntry(entryName)
+                    zos.putNextEntry(zipEntry)
+                    
+                    FileInputStream(file).use { fis ->
+                        fis.copyTo(zos)
+                    }
+                    zos.closeEntry()
                 }
-                zos.closeEntry()
-            }
         }
     }
 }

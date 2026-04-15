@@ -1,5 +1,6 @@
 package android.zero.studio.compose.preview.kotlin
 
+import android.zero.studio.compose.preview.utils.classPathFiles
 import org.jetbrains.kotlin.cli.common.environment.setIdeaIoUseFallback
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSourceLocation
@@ -14,33 +15,22 @@ import org.jetbrains.kotlin.cli.jvm.plugins.PluginCliParser
 import org.jetbrains.kotlin.com.intellij.openapi.Disposable
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import java.io.File
 import java.lang.reflect.Field
 
 /**
- * Manages the Kotlin compiler environment for static analysis and bytecode generation.
- * This class handles the initialization of the Kotlin Core Environment and provides
- * methods to trigger compilation and analysis.
- *
- * @property configuration The internal compiler configuration.
+ * 封装了 Kotlin 编译器的核心环境，支持在 Android 运行时进行动态分析与字节码生成。
+ * 
  * @author android_zero
  */
 class KotlinEnvironment private constructor(private val configuration: CompilerConfiguration) {
 
-    /** The actual Kotlin core environment used by the compiler components. */
     lateinit var core: KotlinCoreEnvironment
         internal set
 
-    /** 
-     * Lazy cache for PSI files. 
-     */
-    val cache: PsiFileCache by lazy {
-        PsiFileCache(core.project)
-    }
+    val cache: PsiFileCache by lazy { PsiFileCache(core.project) }
 
-    /**
-     * Injects the current cached Kotlin files into the compiler's internal source set.
-     */
     private fun injectKtFiles() {
         try {
             val field: Field = KotlinCoreEnvironment::class.java.getDeclaredField("sourceFiles")
@@ -52,43 +42,25 @@ class KotlinEnvironment private constructor(private val configuration: CompilerC
     }
 
     private fun prepare(file: File, code: String?) {
-        if (code != null) {
-            val name = file.name
-            cache.getOrUpdate(name, code)
-        } else {
-            cache.getOrUpdate(file)
-        }
+        if (code != null) cache.getOrUpdate(file.name, code) else cache.getOrUpdate(file)
         injectKtFiles()
     }
 
-    /**
-     * Performs static analysis on the specified file.
-     */
     fun analyze(file: File, code: String? = null) {
-        prepare(file, code ?: file.readText())
+        prepare(file, code)
         KotlinToJVMBytecodeCompiler.analyze(core)
     }
 
-    /**
-     * Compiles the specified file and generates JVM bytecode.
-     */
     fun analyzeAndGenerate(file: File, code: String? = null) {
-        prepare(file, code ?: file.readText())
+        prepare(file, code)
+        // 关键：此方法不仅分析语法，还会根据配置的输出目录生成 .class 文件
         KotlinToJVMBytecodeCompiler.compileBunchOfSources(core)
     }
 
     companion object {
-        /**
-         * Creates a builder to configure and instantiate a [KotlinEnvironment].
-         */
         @JvmStatic
-        fun home(homeDir: File): Builder {
-            return Builder(homeDir)
-        }
+        fun home(homeDir: File): Builder = Builder(homeDir)
 
-        /**
-         * Builder class for [KotlinEnvironment].
-         */
         class Builder(private val homeDir: File) {
             private val configuration = CompilerConfiguration()
             private val pluginsJar = mutableListOf<String>()
@@ -104,6 +76,9 @@ class KotlinEnvironment private constructor(private val configuration: CompilerC
                 return this
             }
 
+            /**
+             * 核心修复：添加 JVM 和 Libs 两个目录下的所有 JAR 作为依赖。
+             */
             fun withJvmClasspathRoots(jars: List<File>): Builder {
                 configuration.addJvmClasspathRoots(jars)
                 return this
@@ -128,59 +103,32 @@ class KotlinEnvironment private constructor(private val configuration: CompilerC
 
                 val env = KotlinEnvironment(configuration)
 
-                // FIX: Use put with MESSAGE_COLLECTOR_KEY instead of unresolved setMessageCollector
                 configuration.put(CommonConfigurationKeys.MESSAGE_COLLECTOR_KEY, object : MessageCollector {
                     private var hasErrors: Boolean = false
-
-                    override fun clear() {
-                        hasErrors = false
-                    }
-
+                    override fun clear() { hasErrors = false }
                     override fun hasErrors(): Boolean = hasErrors
-
-                    override fun report(
-                        severity: CompilerMessageSeverity,
-                        message: String,
-                        location: CompilerMessageSourceLocation?
-                    ) {
-                        if (!hasErrors && severity.isError) {
-                            hasErrors = true
-                        }
-
+                    override fun report(severity: CompilerMessageSeverity, message: String, location: CompilerMessageSourceLocation?) {
+                        if (severity.isError) hasErrors = true
                         if (location != null) {
-                            val path = location.path
-                            val cacheKey = if (path.startsWith("/")) path.substring(1) else path
-                            val cachedFile = env.cache.get(cacheKey)
-                            
+                            val cachedFile = env.cache.get(location.path.substringAfterLast("/"))
                             if (cachedFile != null) {
-                                val report = AnalysisReport(
-                                    path = path,
-                                    startOffset = cachedFile.offsetFor(location.line - 1, location.column - 1),
-                                    endOffset = cachedFile.offsetFor(location.lineEnd - 1, location.columnEnd - 1),
-                                    message = message,
-                                    severity = severity
-                                )
-                                analysisReportListener.invoke(report)
+                                analysisReportListener(AnalysisReport(
+                                    location.path,
+                                    cachedFile.offsetFor(location.line - 1, location.column - 1),
+                                    cachedFile.offsetFor(location.lineEnd - 1, location.columnEnd - 1),
+                                    message, severity
+                                ))
                             }
                         }
                     }
                 })
 
-                // FIX: Align with 5-parameter signature: (Paths, Options, Configs, Configuration, Disposable)
-                PluginCliParser.loadPluginsSafe(
-                    pluginsJar,
-                    emptyList<String>(),
-                    emptyList<String>(),
-                    configuration,
-                    object : Disposable {
-                        override fun dispose() {}
-                    }
-                )
+                // 加载插件
+                PluginCliParser.loadPluginsSafe(pluginsJar, emptyList(), emptyList(), configuration, object : Disposable { override fun dispose() {} })
 
+                // 创建生产环境
                 env.core = KotlinCoreEnvironment.createForProduction(
-                    object : Disposable {
-                        override fun dispose() {}
-                    },
+                    object : Disposable { override fun dispose() {} },
                     configuration,
                     EnvironmentConfigFiles.JVM_CONFIG_FILES
                 )

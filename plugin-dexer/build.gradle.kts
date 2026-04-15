@@ -19,7 +19,7 @@ dependencies {
     // 目标插件版本
     pluginToDex("org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.20")
     // D8 编译器版本
-    d8Compiler("com.android.tools:r8:8.3.37")
+    d8Compiler("com.android.tools:r8:8.13.19")
 }
 
 /**

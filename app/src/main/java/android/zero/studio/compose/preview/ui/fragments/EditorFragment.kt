@@ -1,6 +1,5 @@
 package android.zero.studio.compose.preview.ui.fragments
 
-import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.MenuItem
@@ -9,7 +8,6 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
@@ -37,7 +35,6 @@ import android.zero.studio.compose.preview.views.*
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.SubscriptionReceipt
 import io.github.rosemoe.sora.lang.EmptyLanguage
-import io.github.rosemoe.sora.lang.Language
 import io.github.rosemoe.sora.langs.textmate.TextMateColorScheme
 import io.github.rosemoe.sora.langs.textmate.registry.FileProviderRegistry
 import io.github.rosemoe.sora.langs.textmate.registry.GrammarRegistry
@@ -49,6 +46,19 @@ import org.eclipse.tm4e.core.registry.IThemeSource
 import org.jetbrains.kotlin.psi.KtNamedFunction
 import java.io.File
 
+/**
+ * 核心代码编辑器 Fragment。
+ * 该类作为 IDE 的中心枢纽，协调代码编辑 (Sora Editor)、静态分析 (Kotlin Compiler)、
+ * 字节码转换 (D8) 以及动态渲染 (Compose Runtime)。
+ *
+ * 工作流程线路图:
+ * 1. 初始化编辑器 -> 加载 TextMate 语法与主题。
+ * 2. 绑定 KotlinLanguage -> 启动编译器后端环境。
+ * 3. 监听文本变更 -> 触发 DiagnosticAnalyzer 进行后台增量编译 (*.kt -> *.class -> *.dex)。
+ * 4. 编译成功后 -> 收到分析完成信号 -> 重载 ClassLoader -> 渲染 Compose 画布。
+ * 
+ * @author android_zero
+ */
 class EditorFragment : WorkspaceFragment() {
 
     private var _binding: FragmentEditorBinding? = null
@@ -82,13 +92,13 @@ class EditorFragment : WorkspaceFragment() {
     
     override fun onDestroyView() {
         super.onDestroyView()
+        release()
         _binding = null
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         setViews()
-        initiateFragmentsObservers()
         setEditorTypefaceText()
         setUpTextmate()
         ensureTextmateTheme()
@@ -103,7 +113,7 @@ class EditorFragment : WorkspaceFragment() {
     }
 
     private fun setViews() {
-        binding.toolBarEditor.title = FileUtil.playgroundCode.name
+        binding.toolBarEditor.title = file?.name ?: "Editor"
         bottomSheetBehavior = BottomSheetBehavior.from(binding.editorBottomSheet)
         bottomSheetBehavior.apply {
             isGestureInsetBottomIgnored = true
@@ -117,12 +127,12 @@ class EditorFragment : WorkspaceFragment() {
                 R.id.code -> { showCode(); true }
                 R.id.design -> {
                     showDesign()
-                    if (!isPreviewLoaded) { loadPreview(); isPreviewLoaded = true }
+                    loadPreview()
                     true
                 }
                 R.id.split -> {
                     showSplit()
-                    if (!isPreviewLoaded) { loadPreview(); isPreviewLoaded = true }
+                    loadPreview()
                     true
                 }
                 else -> false
@@ -131,7 +141,10 @@ class EditorFragment : WorkspaceFragment() {
     }
     
     private fun setContentChangeEvent() {
-        codeEditor.subscribeAlways(ContentChangeEvent::class.java) { doAutoSave() }
+        // 自动保存逻辑：当文本变化 1 秒后且无新输入时执行保存，减少 IO 频率
+        codeEditor.subscribeAlways(ContentChangeEvent::class.java) { 
+            doAutoSave() 
+        }
     }
     
     private fun doAutoSave() {
@@ -154,29 +167,38 @@ class EditorFragment : WorkspaceFragment() {
             e.printStackTrace()
         }
     }
-    
-    private fun initiateFragmentsObservers() {
-        editorViewModel.top_nav_position.observe(viewLifecycleOwner) {}
-    }
 
+    /**
+     * 动态加载并渲染预览。
+     * 使用隔离的 MultipleDexClassLoader 加载 classes.dex.zip。
+     */
     private fun loadComposePreview(name: String, clazz: String) {
-        val dexFile = FileUtil.classesJarDex.apply { setReadOnly() }
-        val classLoader = MultipleDexClassLoader(null, requireContext().classLoader).apply { loadDex(dexFile) }
+        val dexFile = FileUtil.classesJarDex
+        if (!dexFile.exists()) {
+            layoutLoading(false)
+            return
+        }
+
+        // ★ 核心重构点：为了支持热重载（Live-Reload），必须销毁旧的 ClassLoader。
+        // 每次预览都实例化一个新的 MultipleDexClassLoader 实例，Parent 设置为系统的 ClassLoader。
+        val classLoader = MultipleDexClassLoader(null, requireContext().classLoader)
+        classLoader.loadDex(dexFile)
+        
         val dynamicLoader = DynamicPreviewLoader(classLoader, clazz, name)
         
-        binding.composeView.apply {
-            disposeComposition()
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-        }
-
-        val isDark = when (ComposeApplication.themeProvider.getTheme()) {
-            1 -> false
-            2 -> true
-            else -> (resources.configuration.uiMode and 48) == 32
-        }
-
-        layoutLoading(false)
         ThreadUtils.runOnUiThread {
+            // 彻底清理 ComposeView 的上一次组合状态，释放内存
+            binding.composeView.disposeComposition()
+            binding.composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+
+            val isDark = when (ComposeApplication.themeProvider.getTheme()) {
+                1 -> false
+                2 -> true
+                else -> (resources.configuration.uiMode and 48) == 32
+            }
+
+            layoutLoading(false)
+            // 在画布上渲染动态加载的 @Composable 函数
             binding.composeView.setContent {
                 AppTheme(darkTheme = isDark) {
                     Surface(color = MaterialTheme.colorScheme.background) {
@@ -184,27 +206,26 @@ class EditorFragment : WorkspaceFragment() {
                     }
                 }
             }
+            isPreviewLoaded = true
         }
     }
 
-    fun loadPreview() {
-        val previewLayouts = listOf(
-            binding.linearLayoutNoPreview,
-            binding.linearLayoutMultiplePreview,
-            binding.linearLayoutComposePreview,
-            binding.linearLayoutInitializing
-        )
-
+      fun loadPreview() {
         lifecycleScope.launch {
-            showOnly(previewLayouts, binding.linearLayoutInitializing, true)
-            
+            // 解析 PSI 获取所有被 @Preview 标记的函数
             val functions = withContext(Dispatchers.IO) { parsePreviewFunctions() }
 
             when {
-                functions.isNullOrEmpty() -> showOnly(previewLayouts, binding.linearLayoutNoPreview, true)
-                functions.size > 1 -> showOnly(previewLayouts, binding.linearLayoutMultiplePreview, true)
+                functions.isNullOrEmpty() -> {
+                    layoutLoading(false)
+                    showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutMultiplePreview), binding.linearLayoutNoPreview, true)
+                }
+                functions.size > 1 -> {
+                    layoutLoading(false)
+                    showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutNoPreview), binding.linearLayoutMultiplePreview, true)
+                }
                 else -> {
-                    showOnly(previewLayouts, binding.linearLayoutComposePreview, true)
+                    // 找到了合法的 Preview，准备渲染。注意此时可能还在编译，Initialization 会由 KotlinLanguage 触发。
                     val fn = functions[0]
                     loadComposePreview(fn.name!!, fn.className())
                 }
@@ -212,6 +233,9 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
     
+    /**
+     * 控制预览占位布局的切换。
+     */
     private fun showOnly(layouts: List<LinearLayout>, target: View, animate: Boolean) {
         layouts.forEach { it.gone() }
         target.visible()
@@ -220,13 +244,19 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
+    /**
+     * 通过分析当前的编辑器文本解析出预览函数列表。
+     */
     private fun parsePreviewFunctions(): List<KtNamedFunction>? {
         val lang = codeEditor.editorLanguage as? KotlinLanguage ?: return null
         val cache = lang.kotlinEnvironment.cache
+        // 确保使用最新的编辑器文本进行解析
         val psiFile = cache.getOrUpdate(file!!.name, codeEditor.text.toString())
         return PreviewComposableFunctionParser.initialize(psiFile.ktFile).parse()
     }
     
+    // --- 布局模式切换逻辑 ---
+
     private fun showCode() {
         val set = ConstraintSet().apply { clone(binding.editorPreviewContainer) }
         set.constrainPercentWidth(binding.editorPreviewLinearLayout.id, 1.0f)
@@ -251,6 +281,7 @@ class EditorFragment : WorkspaceFragment() {
     }
     
     private fun setEditorLanguage() {
+        // 订阅 DiagnosticAnalyzer。每当内容改变时，它都会调用 KotlinLanguage.analyze() 触发增量编译。
         eventReceiver = codeEditor.subscribeEvent(ContentChangeEvent::class.java, DiagnosticAnalyzer(codeEditor, file!!))
         
         if (file?.extension == "kt") {
@@ -279,13 +310,26 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
+     /**
+     * 更新布局加载状态。
+     * @param show 为 true 时显示 Initialization 状态。
+     */
     fun layoutLoading(show: Boolean = true) {
         ThreadUtils.runOnUiThread {
+            val previewLayouts = listOf(
+                binding.linearLayoutNoPreview,
+                binding.linearLayoutMultiplePreview,
+                binding.linearLayoutComposePreview
+            )
+            
             if (show) {
-                binding.linearLayoutLoading.visible()
-                requireContext().animate(binding.linearLayoutLoading)
+                // 隐藏所有预览层，显示初始化层
+                previewLayouts.forEach { it.gone() }
+                binding.linearLayoutInitializing.visible()
+                requireContext().animate(binding.linearLayoutInitializing)
             } else {
-                binding.linearLayoutLoading.gone()
+                // 隐藏初始化层
+                binding.linearLayoutInitializing.gone()
             }
         }
     }
@@ -293,11 +337,6 @@ class EditorFragment : WorkspaceFragment() {
     fun hideWindows() {
         codeEditor.hideEditorWindows()
         codeEditor.hideAutoCompleteWindow()
-    }
-
-    fun isContentModified(): Boolean {
-        val currentText = codeEditor.text.toString()
-        return contentHash != currentText.getFileHash()
     }
 
     fun save() {
@@ -310,6 +349,9 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
+    /**
+     * 释放所有持有资源，防止内存泄露。
+     */
     fun release() {
         if (::eventReceiver.isInitialized) {
             eventReceiver.unsubscribe()
@@ -320,10 +362,6 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
     
-    override fun onResume() {
-        super.onResume()
-    }
-
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putInt("selectedItemId", binding.topRightNavView.selectedItemId)

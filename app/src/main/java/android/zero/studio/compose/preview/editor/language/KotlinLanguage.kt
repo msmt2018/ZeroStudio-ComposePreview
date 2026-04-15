@@ -7,10 +7,7 @@ import android.zero.studio.compose.preview.kotlin.AnalysisReport
 import android.zero.studio.compose.preview.kotlin.KotlinEnvironment
 import android.zero.studio.compose.preview.language.IdeLanguage
 import android.zero.studio.compose.preview.ui.fragments.EditorFragment
-import android.zero.studio.compose.preview.utils.CompilerUtils
-import android.zero.studio.compose.preview.utils.FileUtil
-import android.zero.studio.compose.preview.utils.classPathFiles // FIX: Explicit import for clarity if needed
-import com.android.tools.r8.CompilationFailedException
+import android.zero.studio.compose.preview.utils.*
 import com.android.tools.r8.CompilationMode
 import com.android.tools.r8.OutputMode
 import io.github.rosemoe.sora.lang.completion.CompletionPublisher
@@ -24,14 +21,18 @@ import io.github.rosemoe.sora.text.ContentReference
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import org.eclipse.tm4e.core.grammar.IGrammar
-import org.eclipse.tm4e.languageconfiguration.internal.model.LanguageConfiguration
 import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
-import org.jetbrains.kotlin.config.CompilerConfiguration
+import org.jetbrains.kotlin.config.JVMConfigurationKeys
 import java.io.File
+import java.util.ArrayList
 import kotlin.coroutines.resume
 
+/**
+ * 负责管理 Kotlin 编译与预览流水线的语言类。
+ * 
+ * @author android_zero
+ */
 class KotlinLanguage(
     private val editor: CodeEditorView,
     private val file: File,
@@ -44,67 +45,55 @@ class KotlinLanguage(
     ThemeRegistry.getInstance(),
     false
 ) {
-    private var _diagnosticsContainer: DiagnosticsContainer = DiagnosticsContainer()
-    
-    fun getDiagnosticsContainer(): DiagnosticsContainer {
-        return _diagnosticsContainer
-    }
+    private var _diagnosticsContainer = DiagnosticsContainer()
+    lateinit var kotlinEnvironment: KotlinEnvironment
+    private var tempContainer: DiagnosticsContainer? = null
+    var onAnalyzed: ((Boolean) -> Unit)? = null
+    private val analysisMutex = Mutex()
 
+    // ★ 修复点：公开方法以供 DiagnosticAnalyzer 调用
     fun setDiagnosticsContainer(container: DiagnosticsContainer) {
         this._diagnosticsContainer = container
     }
 
-    lateinit var kotlinEnvironment: KotlinEnvironment
-        internal set
-
-    private var tempContainer: DiagnosticsContainer? = null
-    var onAnalyzed: ((Boolean) -> Unit)? = null
-        internal set
-
-    private val analysisMutex: Mutex = Mutex()
+    fun getDiagnosticsContainer(): DiagnosticsContainer = _diagnosticsContainer
 
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // 扫描所有 Jar 包路径
+                val libJars = FileUtil.classpathLibsDir.classPathFiles()
+                val jvmJars = FileUtil.classpathJvmDir.classPathFiles()
+                val allJars = libJars + jvmJars
+                
                 val builder = KotlinEnvironment.home(FileUtil.kotlinHomeDir)
-                    // FIX: Correctly call extension function on the File object
-                    .withJvmClasspathRoots(FileUtil.classpathLibsDir.classPathFiles())
+                    .withJvmClasspathRoots(allJars)
                     .withJvmSdkRoots(listOf(FileUtil.androidJar, FileUtil.coreLambdaStubs, FileUtil.javaBaseJar))
-                    // FIX: Correctly call extension function on the File object
                     .withPlugins(FileUtil.classpathPluginsDir.classPathFiles())
                     .withConfiguration { config ->
                         config.put(CommonConfigurationKeys.MODULE_NAME, "compose-preview")
+                        config.put(JVMConfigurationKeys.OUTPUT_DIRECTORY, FileUtil.classesOutDir)
                     }
                 
-                kotlinEnvironment = builder.withAnalysisReportListener { report ->
-                    handleAnalysisReport(report)
-                }.create()
-
-                val initialResult = analyze(this@KotlinLanguage.file, null)
-                if (initialResult != null) {
-                    setDiagnosticsContainer(initialResult)
-                    editor.post { editor.setDiagnostics(initialResult) }
-                }
+                kotlinEnvironment = builder.withAnalysisReportListener { handleAnalysisReport(it) }.create()
+                analyze(this@KotlinLanguage.file, null)
                 onAnalyzed?.invoke(true)
             } catch (e: Exception) {
-                System.out.println("KotlinLanguage: Error during kotlin analysis: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
 
     private fun handleAnalysisReport(report: AnalysisReport) {
-        val targetContainer = tempContainer ?: getDiagnosticsContainer()
+        val targetContainer = tempContainer ?: _diagnosticsContainer
         val severity: Short = when (report.severity) {
-            CompilerMessageSeverity.ERROR -> 3
+            CompilerMessageSeverity.ERROR, CompilerMessageSeverity.EXCEPTION -> 3
             CompilerMessageSeverity.WARNING, CompilerMessageSeverity.STRONG_WARNING -> 2
             else -> return
         }
         targetContainer.addDiagnostic(
             DiagnosticRegion(
-                report.startOffset,
-                report.endOffset,
-                severity,
-                0L,
+                report.startOffset, report.endOffset, severity, 0L, 
                 DiagnosticDetail(report.message, null, null, null)
             )
         )
@@ -112,45 +101,39 @@ class KotlinLanguage(
 
     suspend fun analyze(f: File, content: String? = null): DiagnosticsContainer? {
         if (!::kotlinEnvironment.isInitialized) return null
-        
         return analysisMutex.withLock {
             withContext(Dispatchers.IO) {
+                editorFragment.layoutLoading(true)
                 val newContainer = DiagnosticsContainer()
                 tempContainer = newContainer
                 
-                kotlinEnvironment.analyze(f, content)
+                if (FileUtil.classesOutDir.exists()) FileUtil.classesOutDir.deleteRecursively()
+                FileUtil.classesOutDir.mkdirs()
+
+                // ★ 编译 *.kt 到 *.class
+                kotlinEnvironment.analyzeAndGenerate(f, content)
                 
-                val dexSuccess = suspendCancellableCoroutine<Boolean> { continuation ->
-                    CompilerUtils.compileDex(
-                        inputDir = FileUtil.classesOutDir,
-                        outputDir = FileUtil.dexOutDir,
-                        // FIX: Correctly call extension function on the File object
-                        classpath = FileUtil.classpathLibsDir.classPathFiles(),
-                        library = listOf(FileUtil.androidJar),
-                        compilationMode = CompilationMode.DEBUG,
-                        outputMode = OutputMode.DexIndexed,
-                        minApiLevel = 26
-                    ) { _, exception ->
-                        if (continuation.isActive) {
-                            continuation.resume(exception == null)
-                        }
+                val extracted = ArrayList<DiagnosticRegion>()
+                newContainer.queryInRegion(extracted, 0, Int.MAX_VALUE)
+                
+                if (extracted.none { it.severity == 3.toShort() }) {
+                    FileUtil.classesOutDir.zipToJar(FileUtil.classesJarOut)
+                    val dexSuccess = suspendCancellableCoroutine<Boolean> { continuation ->
+                        CompilerUtils.compileDex(
+                            inputDir = FileUtil.classesJarOut,
+                            outputDir = FileUtil.dexOutDir,
+                            classpath = FileUtil.classpathLibsDir.classPathFiles() + FileUtil.classpathJvmDir.classPathFiles(),
+                            library = listOf(FileUtil.androidJar),
+                            minApiLevel = 26
+                        ) { _, ex -> continuation.resume(ex == null) }
                     }
+                    if (dexSuccess) editorFragment.loadPreview()
                 }
                 
+                editorFragment.layoutLoading(false)
                 tempContainer = null
-                editorFragment.layoutLoading(!dexSuccess)
-                
                 newContainer
             }
         }
-    }
-
-    override fun requireAutoComplete(
-        content: ContentReference,
-        position: CharPosition,
-        publisher: CompletionPublisher,
-        extraArguments: Bundle
-    ) {
-        super.requireAutoComplete(content, position, publisher, extraArguments)
     }
 }

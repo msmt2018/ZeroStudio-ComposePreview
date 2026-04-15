@@ -4,19 +4,8 @@ import androidx.compose.runtime.*
 import java.lang.reflect.Method
 
 /**
- * A utility class that dynamically loads a class and invokes a specified @Composable method via reflection.
- * This is primarily used for rendering previews from externally compiled DEX files.
+ * 动态预览加载器：通过反射调用用户编译的 @Composable 函数。
  * 
- * 工作流程线路图:
- * 1. 初始化时存储 ClassLoader、类名和方法名。
- * 2. [Render] 函数作为 Composable 入口，启动重组范围。
- * 3. 利用 [remember] 缓存反射查找结果，避免在每次重组时重新加载类和查找方法。
- * 4. 查找到方法后，通过 [InvokeComposable] 执行反射调用。
- * 5. 反射调用遵循 Compose 的二进制规范，传入当前的 [Composer] 实例。
- * 
- * @property loader The custom ClassLoader containing the target DEX content.
- * @property className The fully qualified name of the class containing the Composable function.
- * @property methodName The name of the Composable function to render.
  * @author android_zero
  */
 class DynamicPreviewLoader(
@@ -25,51 +14,68 @@ class DynamicPreviewLoader(
     private val methodName: String
 ) {
 
-    /**
-     * The main entry point for rendering the dynamic content.
-     * 
-     * 逻辑还原自 Render 字节码:
-     * - 开启 RestartGroup。
-     * - 检查实例是否变更。
-     * - 执行 remember 块：尝试加载类 -> 遍历方法列表 -> 匹配 methodName -> 包装为 Result。
-     * - 如果成功获取 Method 实例，则进入 InvokeComposable 逻辑。
-     */
     @Composable
     fun Render() {
-        // Restoration of the remember block with 3 keys as seen in bytecode (loader, className, methodName)
+        // 使用 remember 缓存 Method 引用，避免重组时重复反射，提升性能
         val methodResult = remember(loader, className, methodName) {
             runCatching {
                 val clazz = loader.loadClass(className)
-                // Restoration of the 'find' logic over declaredMethods array
-                val methods = clazz.declaredMethods
-                methods.find { it.name == methodName }
+                // 查找目标方法
+                // 注意：Compose 编译器会为函数添加参数，所以不能直接用 getMethod
+                clazz.declaredMethods.find { it.name == methodName }
             }
         }
 
-        // Extract the method from the Result wrapper
         val method = methodResult.getOrNull()
         
         if (method != null) {
-            // Restoration of the ReplaceGroup around the invocation
             InvokeComposable(method)
+        } else {
+            // 如果没找到方法，可能正在编译中或者类名变更
+            return
         }
     }
 
     /**
-     * Performs the actual reflection call to the Composable function.
-     * 
-     * @param method The [Method] object representing the @Composable function.
+     * 执行反射调用。
+     * Compose 编译器生成的函数通常具有以下签名：
+     * static void YourFunction(Composer, int changed)
      */
     @Composable
     private fun InvokeComposable(method: Method) {
-        // Restoration of the InvokeComposable logic:
-        // Static Composable functions are invoked with (null, composer, $changed_bits)
         val composer = currentComposer
+        
+        remember(method) {
+            // 确保方法是可访问的
+            method.isAccessible = true
+        }
+
         try {
-            // 1:1 Restoration of method.invoke(null, var2, 0)
-            method.invoke(null, composer, 0)
+            // 计算参数数量
+            val parameterCount = method.parameterTypes.size
+            
+            when (parameterCount) {
+                0 -> {
+                    // 异常情况：正常的 Composable 至少有两个参数
+                    method.invoke(null)
+                }
+                2 -> {
+                    // 标准情况：YourFunction(composer, changed)
+                    // changed 传 0 代表需要重新计算，或者传入对应状态位
+                    method.invoke(null, composer, 0)
+                }
+                else -> {
+                    // 带有默认参数或其他参数的情况，根据 Compose 协议，
+                    // 参数列表末尾会有额外的 mask 整数。
+                    val args = arrayOfNulls<Any>(parameterCount)
+                    args[parameterCount - 2] = composer
+                    args[parameterCount - 1] = 0 // $changed
+                    // 其余参数填充默认值（这取决于函数的默认参数实现）
+                    method.invoke(null, *args)
+                }
+            }
         } catch (e: Exception) {
-            // Keep original behavior of catching and printing exceptions during dynamic invocation
+            // 渲染时可能发生用户代码异常，打印并显示在 Logcat
             e.printStackTrace()
         }
     }

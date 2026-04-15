@@ -34,21 +34,17 @@ android {
             )
         }
     }
-packaging {
+    packaging {
         resources {
-            
             pickFirsts += "kotlin/coroutines/coroutines.kotlin_builtins"
             pickFirsts += "kotlin/annotation/annotation.kotlin_builtins"
             pickFirsts += "kotlin/concurrent/atomics/atomics.kotlin_builtins"
-            
-            
         }
     }
     buildFeatures {
-    compose = true 
-    viewBinding = true
-    dataBinding = true
-    
+        compose = true
+        viewBinding = true
+        dataBinding = true
     }
 }
 
@@ -58,13 +54,8 @@ dependencies {
     implementation("io.github.rosemoe:editor")
     implementation("io.github.rosemoe:language-textmate")
     implementation("io.github.rosemoe:language-treesitter")
-    // implementation("io.github.rosemoe:language-textmate")
-    // api(project(":editor"))
     api(files("libs/kotlinc-embeddable.jar"))
     api(files("libs/library.jar"))
-    // api(files("libs/soraLanguageTextmate-release.aar"))
-    // api(files("libs/soraLanguageTreesitter-release.aar"))
-    // api(files("libs/soraOnigurumaNative-release.aar"))
 
     // AndroidX 核心 UI 库
     implementation(libs.androidx.core.ktx)
@@ -93,6 +84,7 @@ dependencies {
     implementation(libs.google.r8)
     implementation(libs.utilcodex)
 }
+
 tasks.whenTaskAdded {
     // 只要执行 App 的资产打包生成步骤，就自动先去运行我们的插件脱壳重组任务
     if (name == "generateDebugAssets" || name == "generateReleaseAssets") {

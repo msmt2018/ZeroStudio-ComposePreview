@@ -24,14 +24,8 @@ class CodeEditorView @JvmOverloads constructor(
 ) : CodeEditor(context, attrs, defStyleAttr, defStyleRes) {
 
     init {
-        // 1:1 Restoration of the initialization logic from decompiled source
-        
-        // Ensures that the editor can handle its own horizontal scrolling 
-        // without being intercepted by parent views like ViewPager or Drawers.
         this.setInterceptParentHorizontalScrollIfNeeded(true)
 
-        // Retrieves the built-in EditorTextActionWindow component and enables it.
-        // This provides the context-sensitive UI for text manipulation (Copy, Paste, etc.)
         val textActionWindow = this.getComponent(EditorTextActionWindow::class.java) as EditorTextActionWindow
         textActionWindow.isEnabled = true
     }

@@ -3,38 +3,31 @@ package android.zero.studio.compose.preview.executor
 import java.util.concurrent.Callable
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionException
-import java.util.function.BiConsumer
 import java.util.function.Supplier
 
 /**
- * A utility object that manages asynchronous task execution using [CompletableFuture].
- * It provides methods to execute [Callable] tasks with or without detailed error reporting.
+ * 异步任务调度执行器。基于 CompletableFuture 实现生产级的非阻塞任务管理。
  * 
- * 工作流程 (executeAsync):
- * 1. 接收一个 Callable 和可选的 Callback。
- * 2. 使用 supplyAsync 在异步线程执行任务，捕获所有异常并返回 null。
- * 3. 任务完成后，通过 whenComplete 触发 Callback 的 complete 方法。
- *
+ * 工作流程线路图:
+ * 1. 任务提交 (executeAsync): 接收一个 Callable。
+ * 2. 线程切换: 将任务提交至 ForkJoinPool 或默认异步线程池执行。
+ * 3. 结果合并: 任务完成后，通过 whenComplete 触发调用方的回调。
+ * 4. 异常传播: 如果在编译任务中发生异常，将其封装并通过 CallbackWithError 传回。
+ * 
  * @author android_zero
  */
 object TaskExecutor {
 
-    /**
-     * Functional interface for receiving a successful task result.
-     */
     fun interface Callback<R> {
         fun complete(result: R?)
     }
 
-    /**
-     * Functional interface for receiving a task result along with any caught exception.
-     */
     fun interface CallbackWithError<R> {
         fun complete(result: R?, error: Throwable?)
     }
 
     /**
-     * Executes a task asynchronously. If an error occurs, the result is null.
+     * 执行异步任务，不强制要求错误处理。
      */
     @JvmStatic
     @JvmOverloads
@@ -42,13 +35,10 @@ object TaskExecutor {
         callable: Callable<R>,
         callback: Callback<R>? = null
     ): CompletableFuture<R?> {
-        // Restoration of TaskExecutor$$ExternalSyntheticLambda3 (Supplier)
-        // and TaskExecutor$$ExternalSyntheticLambda4/5 (BiConsumer)
         return CompletableFuture.supplyAsync(Supplier {
             try {
                 return@Supplier callable.call()
             } catch (t: Throwable) {
-                // Return null on failure as per original logic
                 return@Supplier null
             }
         }).whenComplete { result, _ ->
@@ -57,7 +47,7 @@ object TaskExecutor {
     }
 
     /**
-     * Executes a task asynchronously and provides the error to the callback if execution fails.
+     * 执行异步任务，并将捕获的异常信息传回回调。
      */
     @JvmStatic
     @JvmOverloads
@@ -65,18 +55,15 @@ object TaskExecutor {
         callable: Callable<R>,
         callback: CallbackWithError<R>? = null
     ): CompletableFuture<R?> {
-        // Restoration of TaskExecutor$$ExternalSyntheticLambda0 (Supplier)
-        // and TaskExecutor$$ExternalSyntheticLambda1/2 (BiConsumer)
         return CompletableFuture.supplyAsync(Supplier {
             try {
                 return@Supplier callable.call()
             } catch (t: Throwable) {
-                // Wrap and throw to trigger whenComplete's error handle
                 throw CompletionException(t)
             }
         }).whenComplete { result, throwable ->
-            // Pass both result and the root cause of the error
-            callback?.complete(result, throwable)
+            val actualError = if (throwable is CompletionException) throwable.cause else throwable
+            callback?.complete(result, actualError)
         }
     }
 }
