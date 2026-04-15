@@ -1,11 +1,19 @@
 Faster and lighter ZeroStudio Comparatively Preview
 
+
+## Project introduction:
+ As shown in the view example, it demonstrates how to visually preview the sdk dependent layout of the androidx.compose series on an Android phone.
+
+![page preview](docs/screenshot.png)
+tip：There are videos available for viewing
+
+
+Regarding development: This project is developed using [ZeroStudio](https://github.com/msmt2018/ZeroStudio)
+
 Customize Compose Preview Best Practices for ZeroStudio
 
 
 Please note: If you need to reference code snippets from this project or develop your own project using this project, please indicate the source.
-And comply with open source protocols and other protocol specifications
-
 
 ## License
 

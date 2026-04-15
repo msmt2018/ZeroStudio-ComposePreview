@@ -1,5 +1,6 @@
 package android.zero.studio.compose.preview.ui.fragments
 
+import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.MenuItem
@@ -48,14 +49,12 @@ import java.io.File
 
 /**
  * 核心代码编辑器 Fragment。
- * 该类作为 IDE 的中心枢纽，协调代码编辑 (Sora Editor)、静态分析 (Kotlin Compiler)、
- * 字节码转换 (D8) 以及动态渲染 (Compose Runtime)。
- *
+ * 
  * 工作流程线路图:
- * 1. 初始化编辑器 -> 加载 TextMate 语法与主题。
- * 2. 绑定 KotlinLanguage -> 启动编译器后端环境。
- * 3. 监听文本变更 -> 触发 DiagnosticAnalyzer 进行后台增量编译 (*.kt -> *.class -> *.dex)。
- * 4. 编译成功后 -> 收到分析完成信号 -> 重载 ClassLoader -> 渲染 Compose 画布。
+ * 1. 视图绑定与初始化 -> 初始化 Sora Editor、TextMate 语法高亮。
+ * 2. 绑定 KotlinLanguage -> 解析 *.kt 文件并建立 Kotlin 编译环境。
+ * 3. 并发事件监听 -> 经由 DiagnosticAnalyzer 监听代码输入，执行带防抖的后台增量编译。
+ * 4. DEX 热重载 (loadPreview) -> 利用带时间戳的隔离 Dex 文件绕过虚拟机缓存，将产物交给 DynamicPreviewLoader 渲染。
  * 
  * @author android_zero
  */
@@ -86,8 +85,8 @@ class EditorFragment : WorkspaceFragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentEditorBinding.inflate(inflater, container, false)
-        this.codeEditor = binding.codeEditor as CodeEditorView
-        return binding.getRoot()
+        this.codeEditor = binding.codeEditor
+        return binding.root
     }
     
     override fun onDestroyView() {
@@ -127,12 +126,18 @@ class EditorFragment : WorkspaceFragment() {
                 R.id.code -> { showCode(); true }
                 R.id.design -> {
                     showDesign()
-                    loadPreview()
+                    if (!isPreviewLoaded) {
+                        loadPreview()
+                        isPreviewLoaded = true
+                    }
                     true
                 }
                 R.id.split -> {
                     showSplit()
-                    loadPreview()
+                    if (!isPreviewLoaded) {
+                        loadPreview()
+                        isPreviewLoaded = true
+                    }
                     true
                 }
                 else -> false
@@ -141,7 +146,6 @@ class EditorFragment : WorkspaceFragment() {
     }
     
     private fun setContentChangeEvent() {
-        // 自动保存逻辑：当文本变化 1 秒后且无新输入时执行保存，减少 IO 频率
         codeEditor.subscribeAlways(ContentChangeEvent::class.java) { 
             doAutoSave() 
         }
@@ -151,8 +155,21 @@ class EditorFragment : WorkspaceFragment() {
         autoSaveJob?.cancel()
         autoSaveJob = lifecycleScope.launch {
             delay(1000)
-            save()
+            if (isContentModified()) {
+                save()
+            }
         }
+    }
+
+    /**
+     * 判断当前编辑器内容是否相较于文件原始状态发生了改变。
+     * 
+     * 工作流程: 获取编辑器最新文本 -> 计算 Hash -> 与初始读取文件时的 contentHash 进行比对。
+     */
+    fun isContentModified(): Boolean {
+        val currentContent = codeEditor.text.toString()
+        val currentContentHash = currentContent.getFileHash()
+        return this.contentHash != currentContentHash
     }
 
     private fun initText(isContentHash: Boolean = false) {
@@ -170,26 +187,26 @@ class EditorFragment : WorkspaceFragment() {
 
     /**
      * 动态加载并渲染预览。
-     * 使用隔离的 MultipleDexClassLoader 加载 classes.dex.zip。
+     * @param name Compose 函数的短名称
+     * @param clazz Compose 函数所在的完全限定类名
      */
     private fun loadComposePreview(name: String, clazz: String) {
         val compiledDexFile = FileUtil.classesJarDex
         if (!compiledDexFile.exists()) {
-            layoutLoading(false)
+            layoutLoading(show = false)
             return
         }
 
+        // 核心修复：准备具备时间戳签名的独立 Dex 文件，强制突破 ClassLoader 缓存
         val loadableDexFile = prepareLoadableDexFile(compiledDexFile)
 
-        // ★ 核心重构点：为了支持热重载（Live-Reload），必须销毁旧的 ClassLoader。
-        // 每次预览都实例化一个新的 MultipleDexClassLoader 实例，Parent 设置为系统的 ClassLoader。
         val classLoader = MultipleDexClassLoader(null, requireContext().classLoader)
         classLoader.loadDex(loadableDexFile)
 
         val dynamicLoader = DynamicPreviewLoader(classLoader, clazz, name)
         
         ThreadUtils.runOnUiThread {
-            // 彻底清理 ComposeView 的上一次组合状态，释放内存
+            // 清理旧状态防内存泄漏
             binding.composeView.disposeComposition()
             binding.composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
 
@@ -199,67 +216,68 @@ class EditorFragment : WorkspaceFragment() {
                 else -> (resources.configuration.uiMode and 48) == 32
             }
 
-            layoutLoading(false)
-            // 在画布上渲染动态加载的 @Composable 函数
+            layoutLoading(show = false) // 关闭加载动画
+            
+            // 挂载动态渲染树
             binding.composeView.setContent {
-                AppTheme(darkTheme = isDark) {
+                AppTheme(darkTheme = isDark, dynamicColor = false) {
                     Surface(color = MaterialTheme.colorScheme.background) {
                         dynamicLoader.Render()
                     }
                 }
             }
-            isPreviewLoaded = true
         }
     }
 
-      fun loadPreview() {
+    /**
+     * 准备并切换预览布局。
+     */
+    fun loadPreview() {
         lifecycleScope.launch {
-            // 解析 PSI 获取所有被 @Preview 标记的函数
             val functions = withContext(Dispatchers.IO) { parsePreviewFunctions() }
 
-            when {
-                functions.isNullOrEmpty() -> {
-                    layoutLoading(false)
-                    showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutMultiplePreview), binding.linearLayoutNoPreview, true)
-                }
-                functions.size > 1 -> {
-                    layoutLoading(false)
-                    showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutNoPreview), binding.linearLayoutMultiplePreview, true)
-                }
-                else -> {
-                    // 找到了合法的 Preview，准备渲染。注意此时可能还在编译，Initialization 会由 KotlinLanguage 触发。
-                    val fn = functions[0]
-                    loadComposePreview(fn.name!!, fn.className())
+            withContext(Dispatchers.Main) {
+                when {
+                    functions.isNullOrEmpty() -> {
+                        layoutLoading(show = false)
+                        showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutMultiplePreview), binding.linearLayoutNoPreview, true)
+                    }
+                    functions.size > 1 -> {
+                        layoutLoading(show = false)
+                        showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutComposePreview, binding.linearLayoutNoPreview), binding.linearLayoutMultiplePreview, true)
+                    }
+                    else -> {
+                        // 识别到唯一预览目标，执行动态挂载
+                        showOnly(listOf(binding.linearLayoutInitializing, binding.linearLayoutNoPreview, binding.linearLayoutMultiplePreview), binding.linearLayoutComposePreview, true)
+                        val fn = functions[0]
+                        loadComposePreview(fn.name!!, fn.className())
+                    }
                 }
             }
         }
     }
     
-
     /**
-     * Android 14+ 禁止从可写/external 目录直接加载 dex。
-     * 这里将编译产物复制到 codeCacheDir，并设置为只读后再交给 ClassLoader。
+     * Android 14+ 限制并且 ClassLoader 默认会缓存 Dex，因此每次覆盖编译后，
+     * 我们必须通过创建带时间戳的副本，欺骗 ClassLoader 加载全新代码。
      */
     private fun prepareLoadableDexFile(sourceDex: File): File {
         val cacheDir = File(requireContext().codeCacheDir, "preview-dex")
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-        }
+        if (!cacheDir.exists()) cacheDir.mkdirs()
 
-        val targetDex = File(cacheDir, "classes.dex.zip")
-        if (targetDex.exists()) {
-            targetDex.setWritable(true)
-        }
+        // 防溢出：清理过期的 dex
+        cacheDir.listFiles()?.forEach { it.delete() }
 
+        // 使用毫秒时间戳保证文件绝对唯一
+        val targetDex = File(cacheDir, "classes_${System.currentTimeMillis()}.dex.zip")
         sourceDex.copyTo(targetDex, overwrite = true)
-        targetDex.setReadable(true, true)
-        targetDex.setWritable(false, false)
+        
+        targetDex.setReadable(true, false)
+        targetDex.setWritable(false, false) // 适应 API 34+ 动态加载只读安全规范
+        
         return targetDex
     }
 
-    /**
-     * 控制预览占位布局的切换。
-     */
     private fun showOnly(layouts: List<LinearLayout>, target: View, animate: Boolean) {
         layouts.forEach { it.gone() }
         target.visible()
@@ -268,18 +286,12 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
-    /**
-     * 通过分析当前的编辑器文本解析出预览函数列表。
-     */
     private fun parsePreviewFunctions(): List<KtNamedFunction>? {
         val lang = codeEditor.editorLanguage as? KotlinLanguage ?: return null
         val cache = lang.kotlinEnvironment.cache
-        // 确保使用最新的编辑器文本进行解析
         val psiFile = cache.getOrUpdate(file!!.name, codeEditor.text.toString())
         return PreviewComposableFunctionParser.initialize(psiFile.ktFile).parse()
     }
-    
-    // --- 布局模式切换逻辑 ---
 
     private fun showCode() {
         val set = ConstraintSet().apply { clone(binding.editorPreviewContainer) }
@@ -305,8 +317,7 @@ class EditorFragment : WorkspaceFragment() {
     }
     
     private fun setEditorLanguage() {
-        // 订阅 DiagnosticAnalyzer。每当内容改变时，它都会调用 KotlinLanguage.analyze() 触发增量编译。
-        eventReceiver = codeEditor.subscribeEvent(ContentChangeEvent::class.java, DiagnosticAnalyzer(codeEditor, file!!))
+        eventReceiver = codeEditor.subscribeEvent(ContentChangeEvent::class.java, DiagnosticAnalyzer(codeEditor, file!!, this))
         
         if (file?.extension == "kt") {
             val lang = KotlinLanguage(codeEditor, file!!, binding.topRightNavView, this)
@@ -334,26 +345,31 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
-     /**
-     * 更新布局加载状态。
-     * @param show 为 true 时显示 Initialization 状态。
+    /**
+     * 更严谨的 UI 加载状态指示。
+     * @param show 是否显示加载。
+     * @param isHotReload 标志当前是初始化加载，还是用户在键入引发的热重载增量编译。
      */
-    fun layoutLoading(show: Boolean = true) {
+    fun layoutLoading(show: Boolean = true, isHotReload: Boolean = false) {
         ThreadUtils.runOnUiThread {
-            val previewLayouts = listOf(
-                binding.linearLayoutNoPreview,
-                binding.linearLayoutMultiplePreview,
-                binding.linearLayoutComposePreview
-            )
-            
             if (show) {
-                // 隐藏所有预览层，显示初始化层
-                previewLayouts.forEach { it.gone() }
-                binding.linearLayoutInitializing.visible()
-                requireContext().animate(binding.linearLayoutInitializing)
+                if (isHotReload) {
+                    // 热编译时，只在顶部出现 Loading 小提示，不遮挡画板
+                    binding.linearLayoutLoading.visible()
+                } else {
+                    // 初次冷启动，遮蔽一切，全屏展示 Initializing...
+                    val previewLayouts = listOf(
+                        binding.linearLayoutNoPreview,
+                        binding.linearLayoutMultiplePreview,
+                        binding.linearLayoutComposePreview
+                    )
+                    previewLayouts.forEach { it.gone() }
+                    binding.linearLayoutInitializing.visible()
+                    requireContext().animate(binding.linearLayoutInitializing)
+                }
             } else {
-                // 隐藏初始化层
                 binding.linearLayoutInitializing.gone()
+                binding.linearLayoutLoading.gone()
             }
         }
     }
@@ -373,9 +389,6 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
 
-    /**
-     * 释放所有持有资源，防止内存泄露。
-     */
     fun release() {
         if (::eventReceiver.isInitialized) {
             eventReceiver.unsubscribe()
