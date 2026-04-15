@@ -173,17 +173,19 @@ class EditorFragment : WorkspaceFragment() {
      * 使用隔离的 MultipleDexClassLoader 加载 classes.dex.zip。
      */
     private fun loadComposePreview(name: String, clazz: String) {
-        val dexFile = FileUtil.classesJarDex
-        if (!dexFile.exists()) {
+        val compiledDexFile = FileUtil.classesJarDex
+        if (!compiledDexFile.exists()) {
             layoutLoading(false)
             return
         }
 
+        val loadableDexFile = prepareLoadableDexFile(compiledDexFile)
+
         // ★ 核心重构点：为了支持热重载（Live-Reload），必须销毁旧的 ClassLoader。
         // 每次预览都实例化一个新的 MultipleDexClassLoader 实例，Parent 设置为系统的 ClassLoader。
         val classLoader = MultipleDexClassLoader(null, requireContext().classLoader)
-        classLoader.loadDex(dexFile)
-        
+        classLoader.loadDex(loadableDexFile)
+
         val dynamicLoader = DynamicPreviewLoader(classLoader, clazz, name)
         
         ThreadUtils.runOnUiThread {
@@ -233,6 +235,28 @@ class EditorFragment : WorkspaceFragment() {
         }
     }
     
+
+    /**
+     * Android 14+ 禁止从可写/external 目录直接加载 dex。
+     * 这里将编译产物复制到 codeCacheDir，并设置为只读后再交给 ClassLoader。
+     */
+    private fun prepareLoadableDexFile(sourceDex: File): File {
+        val cacheDir = File(requireContext().codeCacheDir, "preview-dex")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+
+        val targetDex = File(cacheDir, "classes.dex.zip")
+        if (targetDex.exists()) {
+            targetDex.setWritable(true)
+        }
+
+        sourceDex.copyTo(targetDex, overwrite = true)
+        targetDex.setReadable(true, true)
+        targetDex.setWritable(false, false)
+        return targetDex
+    }
+
     /**
      * 控制预览占位布局的切换。
      */
