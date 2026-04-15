@@ -26,7 +26,10 @@ class DynamicPreviewLoader(
             }
         }
 
-        methodResult.getOrNull()?.let(::invokeComposable)
+        val method = methodResult.getOrNull()
+        if (method != null) {
+            invokeComposable(method)
+        }
     }
 
     /**
