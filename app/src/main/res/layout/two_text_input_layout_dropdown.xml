@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    android:orientation="vertical"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="fill_parent"
+        android:layout_height="fill_parent">
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/text_input_layout"
+            android:layout_width="0.0dip"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16.0dip"
+            android:layout_marginBottom="16.0dip"
+            android:layout_marginStart="20.0dip"
+            android:layout_marginEnd="20.0dip"
+            android:elevation="4.0dip"
+            app:boxCornerRadiusBottomEnd="16.0dip"
+            app:boxCornerRadiusBottomStart="16.0dip"
+            app:boxCornerRadiusTopEnd="16.0dip"
+            app:boxCornerRadiusTopStart="16.0dip"
+            app:layout_constraintLeft_toLeftOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:textAppearance="@style/TextAppearance.App.TitleSmall"
+                android:background="@null"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:dropDownSelector="@drawable/popup_dropdown_background"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/text_input_layout_second"
+            android:layout_width="0.0dip"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16.0dip"
+            android:layout_marginBottom="16.0dip"
+            android:layout_marginStart="20.0dip"
+            android:layout_marginEnd="20.0dip"
+            android:elevation="4.0dip"
+            app:boxCornerRadiusBottomEnd="16.0dip"
+            app:boxCornerRadiusBottomStart="16.0dip"
+            app:boxCornerRadiusTopEnd="16.0dip"
+            app:boxCornerRadiusTopStart="16.0dip"
+            app:layout_constraintLeft_toLeftOf="parent"
+            app:layout_constraintRight_toRightOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/text_input_layout"
+            style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:textAppearance="@style/TextAppearance.App.TitleSmall"
+                android:background="@null"
+                android:layout_width="fill_parent"
+                android:layout_height="fill_parent"
+                android:dropDownSelector="@drawable/popup_dropdown_background"
+                android:inputType="none" />
+        </com.google.android.material.textfield.TextInputLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

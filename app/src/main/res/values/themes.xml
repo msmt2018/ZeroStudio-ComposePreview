@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar" />
+  
+      <style name="TextAppearance.App.TitleMediumSmall" parent="@style/TextAppearance.Material3.TitleSmall">
+        <item name="android:textSize">12.0sp</item>
+        <item name="android:textColor">?colorControlNormal</item>
+        <item name="android:fontFamily">@font/inter_28pt_bold</item>
+        <item name="fontFamily">@font/inter_28pt_bold</item>
+    </style>
+    <style name="TextAppearance.App.TitleSmall" parent="@style/TextAppearance.Material3.TitleSmall">
+        <item name="android:textSize">16.0sp</item>
+        <item name="android:textColor">?colorControlNormal</item>
+        <item name="android:fontFamily">@font/inter_28pt_bold</item>
+        <item name="fontFamily">@font/inter_28pt_bold</item>
+    </style>
+    <style name="TextAppearance.App.TitleSmallMedium" parent="@style/TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">24.0sp</item>
+        <item name="android:textColor">?colorControlNormal</item>
+        <item name="android:fontFamily">@font/inter_28pt_bold</item>
+        <item name="fontFamily">@font/inter_28pt_bold</item>
+    </style>
+    
+        <style name="Widget.AppTheme.BottomSheet" parent="">
+        <item name="android:elevation">@dimen/m3_bottom_sheet_elevation</item>
+        <item name="backgroundTint">?colorSurfaceContainerLow</item>
+        <item name="layout_behavior">@string/bottom_sheet_behavior</item>
+        <item name="shapeAppearance">?shapeAppearanceCornerExtraLarge</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.Material3.Corner.Top</item>
+        <item name="shouldRemoveExpandedCorners">false</item>
+    </style>
+    <style name="TextAppearance.App.TitleLargeSmall" parent="@style/TextAppearance.Material3.TitleSmall">
+        <item name="android:textSize">8.0sp</item>
+        <item name="android:textColor">?colorControlNormal</item>
+        <item name="android:fontFamily">@font/inter_28pt_bold</item>
+        <item name="fontFamily">@font/inter_28pt_bold</item>
+    </style>
+        <style name="Theme.SplashScreen" parent="@style/Theme.SplashScreen.Common">
+        <item name="postSplashScreenTheme">?android:theme</item>
+        <item name="windowSplashScreenAnimatedIcon">@android:drawable/sym_def_app_icon</item>
+        <item name="windowSplashScreenAnimationDuration">@integer/default_icon_animation_duration</item>
+        <item name="windowSplashScreenBackground">?android:colorBackground</item>
+    </style>
+    <style name="Theme.SplashScreen.Common" parent="@style/Base.Theme.SplashScreen.DayNight">
+        <item name="android:windowBackground">@drawable/compat_splash_screen_no_icon_background</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:fitsSystemWindows">false</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:opacity">opaque</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="splashScreenIconSize">@dimen/splashscreen_icon_size_no_background</item>
+    </style>
+        <style name="Theme.App.Starting" parent="@style/Theme.SplashScreen">
+        <item name="postSplashScreenTheme">@style/AppTheme</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher</item>
+        <item name="windowSplashScreenAnimationDuration">200</item>
+        <item name="windowSplashScreenBackground">@color/md_theme_background</item>
+    </style>
+    
+</resources>

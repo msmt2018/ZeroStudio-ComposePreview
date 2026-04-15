@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:id="@+id/panel_root"
+    android:layout_width="wrap_content"
+    android:layout_height="fill_parent"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+    <HorizontalScrollView
+        android:id="@+id/panel_hv"
+        android:layout_width="wrap_content"
+        android:layout_height="fill_parent">
+        <LinearLayout
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:layout_width="wrap_content"
+            android:layout_height="fill_parent">
+            <ImageButton
+                android:id="@+id/panel_btn_select_all"
+                android:background="?android:selectableItemBackground"
+                android:layout_width="45.0dip"
+                android:layout_height="45.0dip"
+                android:src="@drawable/round_select_all_20"
+                android:contentDescription="@android:string/selectAll" />
+            <ImageButton
+                android:id="@+id/panel_btn_copy"
+                android:background="?android:selectableItemBackground"
+                android:layout_width="45.0dip"
+                android:layout_height="45.0dip"
+                android:src="@drawable/round_content_copy_20"
+                android:contentDescription="@android:string/copy" />
+            <ImageButton
+                android:id="@+id/panel_btn_paste"
+                android:background="?android:selectableItemBackground"
+                android:layout_width="45.0dip"
+                android:layout_height="45.0dip"
+                android:src="@drawable/round_content_paste_20"
+                android:contentDescription="@android:string/paste" />
+            <ImageButton
+                android:id="@+id/panel_btn_long_select"
+                android:background="?android:selectableItemBackground"
+                android:layout_width="45.0dip"
+                android:layout_height="45.0dip"
+                android:src="@drawable/editor_text_select_start"
+                android:contentDescription="@string/sora_editor_long_select" />
+            <ImageButton
+                android:id="@+id/panel_btn_cut"
+                android:background="?android:selectableItemBackground"
+                android:layout_width="45.0dip"
+                android:layout_height="45.0dip"
+                android:src="@drawable/round_content_cut_20"
+                android:contentDescription="@android:string/cut" />
+        </LinearLayout>
+    </HorizontalScrollView>
+</LinearLayout>

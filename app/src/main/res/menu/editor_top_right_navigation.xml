@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:icon="@drawable/ic_view_headline"
+        android:enabled="true"
+        android:id="@+id/code"
+        android:title="@string/code" />
+    <item
+        android:icon="@drawable/ic_vertical_split"
+        android:enabled="true"
+        android:id="@+id/split"
+        android:title="@string/split" />
+    <item
+        android:icon="@drawable/ic_image"
+        android:enabled="true"
+        android:id="@+id/design"
+        android:title="@string/design" />
+</menu>

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+     xmlns:tools="http://schemas.android.com/tools">
+
+     <!-- 允许该应用显示通知 -->
+     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+     <!-- 允许该应用使用生物特征硬件进行身份验证 -->
+     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+     <!-- 允许该应用使用指纹硬件进行身份验证 -->
+     <uses-permission android:name="android.permission.USE_FINGERPRINT" />
+     <queries>
+          <intent>
+               <action android:name="android.intent.action.MAIN" />
+          </intent>
+          <intent>
+               <action android:name="android.intent.action.VIEW" />
+          </intent>
+     </queries>
+     <permission
+          android:name="android.zero.studio.compose.preview.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+          android:protectionLevel="signature" />
+     <uses-permission android:name="android.zero.studio.compose.preview.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+
+     <application
+          android:name=".ComposeApplication"
+          android:allowBackup="true"
+          android:icon="@mipmap/ic_launcher"
+          android:roundIcon="@mipmap/ic_launcher"
+          android:label="@string/app_name"
+          android:supportsRtl="true"
+          android:theme="@style/AppTheme"
+          android:requestLegacyExternalStorage="true"
+          android:enableOnBackInvokedCallback="true"
+          android:debuggable="true"
+         
+          android:largeHeap="true"
+   
+          android:extractNativeLibs="true"
+          android:fullBackupContent="true"
+          android:usesCleartextTraffic="true"
+          android:resizeableActivity="true"
+          tools:targetApi="31">
+          <property
+               android:name="android.zero.studio.compose.preview.REQUIRE_SECURE_ENV"
+               android:value="1" />
+          <activity
+               android:name=".ui.activities.SplashActivity"
+               android:exported="true"
+               android:theme="@style/Theme.App.Starting">
+               <intent-filter>
+                    <action android:name="android.intent.action.MAIN" />
+                    <category android:name="android.intent.category.LAUNCHER" />
+               </intent-filter>
+          </activity>
+
+          <activity
+               android:name=".ui.activities.EditorActivity"
+               android:exported="true"
+               android:configChanges="keyboardHidden|orientation|screenLayout|screenSize"
+               android:windowSoftInputMode="stateAlwaysVisible|adjustResize"
+               android:label="@string/app_name">
+          </activity>
+
+     </application>
+
+</manifest>
