@@ -23,6 +23,8 @@ compose-bom = "2026.03.01"
 
 # 其他工具
 utilcodex = "1.31.1"
+asm = "9.8"
+dexlib2 = "2.5.2"
 
 [libraries]
 # AndroidX & Google
@@ -67,6 +69,8 @@ sora-editor = { group = "io.github.rosemoe.sora", name = "editor", version.ref =
 
 # 工具类
 utilcodex = { group = "com.blankj", name = "utilcodex", version.ref = "utilcodex" }
+asm = { module = "org.ow2.asm:asm", version.ref = "asm" }
+dexlib2 = { module = "org.smali:dexlib2", version.ref = "dexlib2" }
 
 junit = { module = "junit:junit", version = "4.13.2" }
 gson = { module = "com.google.code.gson:gson", version = "2.13.1" }

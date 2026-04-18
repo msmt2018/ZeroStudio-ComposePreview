@@ -8,7 +8,9 @@ import android.zero.studio.compose.preview.provider.theme.ThemeProvider
 import android.zero.studio.compose.preview.utils.*
 import java.io.File
 import java.io.FileInputStream
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 应用程序主入口。负责配置 StrictMode、主题管理以及核心编译器资产的自动部署。
@@ -50,6 +52,7 @@ class ComposeApplication : Application() {
      */
     private fun deployCompilerAssets() {
         Executors.newSingleThreadExecutor().execute {
+            var success = true
             // 定义需要从 Assets 同步到本地存储的文件夹
             val assetFolders = listOf("jvm", "libs", "plugins")
             
@@ -73,11 +76,14 @@ class ComposeApplication : Application() {
                             // 执行从 Assets 到磁盘的流复制
                             extractFromAsset(fullAssetPath, targetFile)
                         } catch (e: Exception) {
+                            success = false
                             android.util.Log.e("App", "Failed to deploy: $fileName")
                         }
                     }
                 }
             }
+
+            compilerAssetsReady.complete(success)
         }
     }
 
@@ -96,6 +102,8 @@ class ComposeApplication : Application() {
     }
 
     companion object {
+        private val compilerAssetsReady = CompletableFuture<Boolean>()
+
         lateinit var instance: ComposeApplication
             internal set
 
@@ -104,6 +112,18 @@ class ComposeApplication : Application() {
 
         val sharedPreferences by lazy {
             PreferenceManager.getDefaultSharedPreferences(instance)
+        }
+
+        /**
+         * 等待编译资产（classpath/jvm, libs, plugins）部署完成。
+         * 解决首次安装时 classpath 尚未落盘导致的 import 解析失败问题。
+         */
+        fun awaitCompilerAssets(timeoutSeconds: Long = 30): Boolean {
+            return try {
+                compilerAssetsReady.get(timeoutSeconds, TimeUnit.SECONDS)
+            } catch (_: Exception) {
+                false
+            }
         }
     }
 }

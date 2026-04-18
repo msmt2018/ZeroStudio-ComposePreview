@@ -61,6 +61,9 @@ object FileUtil {
     val classesJarDex: File
         get() = File(dexOutDir, "classes.dex.zip")
 
+    val previousClassesJarDex: File
+        get() = File(dexOutDir, "classes.previous.dex.zip")
+
     /**
      * The default playground code file. Created lazily.
      */

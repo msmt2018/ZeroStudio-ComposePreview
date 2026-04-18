@@ -1,6 +1,7 @@
 package android.zero.studio.compose.preview.editor.language
 
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import android.zero.studio.compose.preview.ComposeApplication
 import android.zero.studio.compose.preview.editor.CodeEditorView
 import android.zero.studio.compose.preview.kotlin.AnalysisReport
 import android.zero.studio.compose.preview.kotlin.KotlinEnvironment
@@ -66,6 +67,9 @@ class KotlinLanguage(
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // 首次安装启动时，等待 classpath 资产就绪，避免 import 解析偶发失败。
+                ComposeApplication.awaitCompilerAssets()
+
                 val libJars = FileUtil.classpathLibsDir.classPathFiles()
                 val jvmJars = FileUtil.classpathJvmDir.classPathFiles()
                 val allJars = libJars + jvmJars
@@ -144,6 +148,18 @@ class KotlinLanguage(
                     
                     // 一旦 DEX 转换成功，通知主 UI 线程拉起 Render
                     if (dexSuccess) {
+                        runCatching {
+                            DexHotReloadEnhancer.enhance(
+                                compiledJar = FileUtil.classesJarOut,
+                                hotDexZip = FileUtil.classesJarDex,
+                                baselineDexZip = FileUtil.previousClassesJarDex.takeIf { it.exists() },
+                                changedClassPrefixes = setOf(f.nameWithoutExtension),
+                                minApiLevel = 26
+                            )
+                        }
+                        runCatching {
+                            FileUtil.classesJarDex.copyTo(FileUtil.previousClassesJarDex, overwrite = true)
+                        }
                         withContext(Dispatchers.Main) {
                             editorFragment.loadPreview()
                         }

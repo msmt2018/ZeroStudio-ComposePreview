@@ -83,6 +83,8 @@ dependencies {
 
     implementation(libs.google.r8)
     implementation(libs.utilcodex)
+    implementation(libs.asm)
+    implementation(libs.dexlib2)
 }
 
 tasks.whenTaskAdded {
