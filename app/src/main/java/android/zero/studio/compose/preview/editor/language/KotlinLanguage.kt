@@ -151,9 +151,14 @@ class KotlinLanguage(
                         runCatching {
                             DexHotReloadEnhancer.enhance(
                                 compiledJar = FileUtil.classesJarOut,
-                                dexZip = FileUtil.classesJarDex,
+                                hotDexZip = FileUtil.classesJarDex,
+                                baselineDexZip = FileUtil.previousClassesJarDex.takeIf { it.exists() },
+                                changedClassPrefixes = setOf(f.nameWithoutExtension),
                                 minApiLevel = 26
                             )
+                        }
+                        runCatching {
+                            FileUtil.classesJarDex.copyTo(FileUtil.previousClassesJarDex, overwrite = true)
                         }
                         withContext(Dispatchers.Main) {
                             editorFragment.loadPreview()
