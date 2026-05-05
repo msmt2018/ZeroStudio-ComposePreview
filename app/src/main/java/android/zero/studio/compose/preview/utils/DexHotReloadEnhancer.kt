@@ -4,6 +4,7 @@ import android.util.Log
 import android.zero.studio.compose.preview.utils.esl.EslIncrementalProcessor
 import org.objectweb.asm.ClassReader
 import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.AnnotationVisitor
 import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
 import java.io.File
@@ -64,10 +65,11 @@ object DexHotReloadEnhancer {
                                 exceptions: Array<out String>?
                             ): MethodVisitor {
                                 return object : MethodVisitor(Opcodes.ASM9) {
-                                    override fun visitAnnotation(descriptor: String?, visible: Boolean) {
+                                    override fun visitAnnotation(descriptor: String?, visible: Boolean): AnnotationVisitor? {
                                         if (descriptor == "Landroidx/compose/runtime/Composable;") {
                                             count += 1
                                         }
+                                        return super.visitAnnotation(descriptor, visible)
                                     }
                                 }
                             }

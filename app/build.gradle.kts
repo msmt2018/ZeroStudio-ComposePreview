@@ -21,6 +21,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
@@ -85,6 +86,7 @@ dependencies {
     implementation(libs.utilcodex)
     implementation(libs.asm)
     implementation(libs.dexlib2)
+    coreLibraryDesugaring(libs.desugar)
 }
 
 tasks.whenTaskAdded {
