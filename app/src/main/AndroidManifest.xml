@@ -31,7 +31,7 @@
           android:theme="@style/AppTheme"
           android:requestLegacyExternalStorage="true"
           android:enableOnBackInvokedCallback="true"
-          android:debuggable="true"
+          android:debuggable="false"
          
           android:largeHeap="true"
    
